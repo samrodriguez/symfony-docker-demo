@@ -81,6 +81,8 @@ git --version
 
 ## Instalación
 
+## Instalación
+
 ### 1. Clonar el repositorio
 
 ```bash
@@ -88,56 +90,36 @@ git clone https://github.com/samrodriguez/symfony-docker-demo.git
 cd symfony-docker-demo
 ```
 
-### 2. Preparar las variables de entorno
+### 2. Configurar las variables de entorno
 
-Crea un archivo `.env` a partir de la plantilla proporcionada, si existe:
+Si existe una plantilla `.env.example`, cópiala:
 
 ```bash
 cp .env.example .env
 ```
 
-Si el repositorio todavía no contiene `.env.example`, crea uno con las variables necesarias para los archivos Compose:
+Configura las variables necesarias para PHP, MariaDB, RabbitMQ y la zona horaria. Utiliza credenciales de ejemplo únicamente para desarrollo local.
 
-```dotenv
-APPENV=dev
-HOST_UID=1000
-HOST_GID=1000
-
-MYSQL_ROOT_PASSWORD=change-me-root
-MYSQL_USER=symfony
-MYSQL_PASSWORD=change-me-app
-MYSQL_DATABASE=symfony
-
-RABBITMQ_USER=developer
-RABBITMQ_PASSWORD=change-me-rabbitmq
-
-TZ=America/El_Salvador
-```
-
-Estos valores son ejemplos para desarrollo. Cámbialos según tu entorno y no reutilices estas contraseñas en producción.
-
-En Linux, obtén el UID y GID de tu usuario:
+En Linux, consulta el UID y GID de tu usuario:
 
 ```bash
 id -u
 id -g
 ```
 
-Actualiza `HOST_UID` y `HOST_GID` en `.env` para evitar problemas de permisos al trabajar con archivos montados desde el host.
+Ajusta `HOST_UID` y `HOST_GID` en `.env` para que coincidan con los valores de tu sistema.
 
-No publiques credenciales reales ni secretos en Git. Mantén `.env` fuera del control de versiones y utiliza `.env.example` únicamente con valores de demostración.
+### 3. Crear la red Docker
 
-### 3. Preparar la red Docker
-
-Los archivos Compose utilizan una red externa denominada `app-network`. Créala antes de iniciar los servicios:
+La infraestructura y la aplicación utilizan una red externa llamada `app-network`.
 
 ```bash
 docker network create app-network
 ```
 
-Si la red ya existe, no necesitas crearla de nuevo.
+Si la red ya existe, puedes continuar sin crearla nuevamente.
 
-### 4. Preparar los directorios persistentes
+### 4. Crear los directorios persistentes
 
 Desde la raíz del repositorio:
 
@@ -147,56 +129,87 @@ mkdir -p data/mailpit/data
 mkdir -p data/rabbitmq
 ```
 
-Estos directorios guardan datos fuera del ciclo de vida de los contenedores.
+Estos directorios permiten conservar los datos de los servicios entre recreaciones de contenedores.
 
-Asegúrate de que el usuario de Docker tenga los permisos necesarios para escribir en ellos.
+### 5. Clonar la aplicación Symfony de ejemplo
 
-### 5. Validar la configuración
+El repositorio `symfony-docker-demo` contiene la configuración de Docker. El código de la aplicación se mantiene por separado en `sf-code/`.
 
-Antes de iniciar los servicios:
+Desde la raíz de `symfony-docker-demo`, ejecuta:
 
 ```bash
-docker compose config --quiet
-docker compose -f sf/compose.yml config --quiet
+git clone https://github.com/symfony/demo sf-code
 ```
 
-Si utilizas variables de entorno adicionales, comprueba que estén definidas y que las rutas de los volúmenes y los contextos de compilación sean correctos.
+Sustituye `https://github.com/symfony/demo` por la URL real del proyecto Symfony de ejemplo.
+
+Comprueba que la estructura sea similar a esta:
+
+```text
+symfony-docker-demo/
+├── compose.yml
+├── databases/
+├── development/
+├── sf/
+│   ├── compose.yml
+│   ├── nginx/
+│   └── php84-fpm/
+└── sf-code/
+    ├── composer.json
+    ├── public/
+    ├── src/
+    └── ...
+```
+
+La aplicación debe contener, como mínimo, los archivos necesarios para que Composer y Symfony puedan trabajar. Si utilizas Webpack Encore, también necesitarás los archivos de configuración frontend correspondientes.
 
 ### 6. Iniciar la infraestructura
 
-Desde la raíz del repositorio:
+Desde la raíz de `symfony-docker-demo`:
 
 ```bash
 docker compose up -d
 ```
 
-Esto inicia los servicios definidos en el Compose raíz y los archivos incluidos: MariaDB, RabbitMQ y Mailpit.
+Esto inicia los servicios definidos en el Compose raíz y en sus archivos incluidos: MariaDB, RabbitMQ y Mailpit.
 
-Comprueba el estado:
+Comprueba su estado:
 
 ```bash
 docker compose ps
 ```
 
-### 7. Iniciar Symfony
+### 7. Construir e iniciar Symfony con Nginx
 
-Desde la raíz del repositorio:
+Una vez que la infraestructura esté preparada y `sf-code/` contenga la aplicación:
 
 ```bash
 docker compose -f sf/compose.yml -p sf-stack up -d --build
 ```
 
-Consulta el estado y los logs:
+Consulta el estado de los contenedores:
 
 ```bash
 docker compose -f sf/compose.yml -p sf-stack ps
+```
 
+Si algún servicio no inicia correctamente, revisa sus logs:
+
+```bash
 docker compose -f sf/compose.yml -p sf-stack logs -f sf-app sf-nginx
 ```
 
-Abre la aplicación en:
+### 8. Acceder a los servicios
 
-**http://localhost:8080**
+| Servicio | URL |
+|---|---|
+| Aplicación Symfony | http://localhost:8080 |
+| Mailpit | http://localhost:8025 |
+| RabbitMQ Management | http://localhost:15672 |
+
+MariaDB está publicada en `127.0.0.1:3306`. RabbitMQ y Mailpit también permiten comunicación entre contenedores mediante sus nombres de servicio y los puertos internos configurados.
+
+La aplicación Symfony debe tener configurada la conexión a MariaDB, RabbitMQ y Mailpit según los servicios que utilice.
 
 El archivo `sf-code/` debe contener una aplicación Symfony válida. Si no existe una aplicación en esa ubicación, prepara el código antes de iniciar el contenedor.
 
@@ -523,6 +536,12 @@ Antes de utilizarlo en producción, revisa al menos:
 - [RabbitMQ Docker Official Image](https://hub.docker.com/_/rabbitmq)
 - [Mailpit](https://mailpit.axllent.org/)
 
-## Licencia
+## Licencias y atribuciones
 
-Este proyecto se distribuye bajo la licencia MIT. Consulta el archivo `LICENSE` para conocer los términos completos.
+Este proyecto proporciona configuraciones de desarrollo basadas en tecnologías open source de terceros, entre ellas Docker Engine, PHP, Symfony, Nginx, MariaDB, RabbitMQ y Mailpit.
+
+Cada componente conserva sus propios términos de licencia. Consulta las licencias y avisos de copyright de los proyectos originales para conocer las condiciones aplicables a su uso, modificación y redistribución.
+
+Los archivos de configuración originales de este repositorio se distribuyen bajo la licencia indicada en el archivo `LICENSE` de la raíz.
+
+Este repositorio no implica afiliación ni respaldo oficial por parte de los proyectos o marcas mencionados.
