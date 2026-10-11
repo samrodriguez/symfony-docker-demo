@@ -1,0 +1,114 @@
+name: symfony-app-core # Define el nombre de tu proyecto real para aislar los recursos
+services:
+  sf-app:
+    build:
+      context: ./php84-fpm
+      dockerfile: Dockerfile
+      target: dev
+      args:
+        APPENV: ${APPENV}
+        UID: ${HOST_UID}
+        GID: ${HOST_GID}
+    container_name: sf-app  
+    image: sf-app # Etiqueta local para inmutabilidad de la construcción
+    restart: unless-stopped
+    
+    # --- OPTIMIZACIONES DE PROCESOS ---
+    init: true               # PID 1: Evita procesos zombie y fugas de memoria en PHP
+    stop_grace_period: 10s   # Permite terminar scripts en ejecución antes del apagado
+    
+    working_dir: /var/www/html
+    stdin_open: true         # Habilita el stream interactivo (esencial para VS Code y Xdebug)
+    tty: true                # Asigna una pseudo-terminal
+    
+    volumes:
+      # Montaje principal del código fuente
+      - ../sf-code:/var/www/html:cached
+      # Aislamiento: Excluye carpetas de alto I/O de la sincronización del host
+      - node_modules_data:/var/www/html/node_modules 
+      - cache_data:/var/www/html/var/cache
+      - log_data:/var/www/html/var/log
+      - composer_cache:/home/developer/.composer/cache
+      - npm_cache:/home/developer/.npm
+
+    networks:
+      - app-network # Conecta al ecosistema global de infraestructura
+
+    healthcheck:
+      # Verifica directamente el socket TCP nativo de PHP-FPM sin binarios extra
+      test: ["CMD", "/bin/bash", "-c", "cat < /dev/null > /dev/tcp/127.0.0.1/9000"]
+      interval: 5s
+      timeout: 3s
+      retries: 5    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"         # Rota el log al alcanzar 10MB
+        max-file: "3"           # Conserva un máximo de 30MB en total
+        mode: "non-blocking"    # Desacopla I/O de disco para no frenar la ejecución de PHP
+        max-buffer-size: "4m"   # Búfer en RAM
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0' # Límite alto: Permite compilar assets y ejecutar scripts pesados rápidamente
+          memory: 6G  # Límite alto: Previene que procesos de Node/Webpack bloqueen el host
+  sf-nginx:
+    image: nginx:alpine
+    container_name: sf-nginx
+    restart: unless-stopped
+    stop_grace_period: 5s
+
+    volumes:
+      # Inyecta la configuración de Nginx específica para Symfony
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      # Monta solo la carpeta pública en solo lectura (Seguridad: Nginx no debe acceder al código core)
+      - ../sf-code/public:/var/www/html/public:ro
+
+    depends_on:
+      sf-app:
+        condition: service_healthy # SRE: Asegura que Nginx no arranque hasta que PHP esté listo
+    
+    environment:
+      # Cabecera utilizada por NPM (opcional, dependiendo de tu configuración de proxy)
+      VIRTUAL_HOST: sf.local
+
+    ports:
+      # Expone el puerto solo al localhost, previniendo accesos externos al panel de administración
+      - "127.0.0.1:8080:80"
+    
+    networks:
+      - app-network # Conecta al ecosistema global de infraestructura
+    
+    healthcheck:
+      # Verifica que el proceso de Nginx pueda servir contenido
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/health || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        mode: "non-blocking"
+        max-buffer-size: "4m"
+    
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'  # Límite bajo: Nginx solo enruta estáticos y pasa FastCGI, no consume mucha CPU
+          memory: 256M # Límite RAM: Suficiente para procesamiento HTTP
+
+volumes:
+  # Declaración de volúmenes persistentes gestionados por el motor de Docker
+  node_modules_data:
+  cache_data:
+  log_data:
+  composer_cache:
+  npm_cache:
+
+networks:
+  app-network:
+    external: true # Conexión obligatoria a tu red global creada previamente
+    name: app-network

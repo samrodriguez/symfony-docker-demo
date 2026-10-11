@@ -1,0 +1,8 @@
+include:
+  - databases/mariadb/compose.yml
+  - development/mailpit/compose.yml
+  - development/rabbitmq/compose.yml
+
+networks:
+  app-network:
+    external: true

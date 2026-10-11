@@ -1,0 +1,54 @@
+name: mariadb-stack # Define el nombre del stack para aislar el entorno
+services:
+  mariadb:
+    image: mariadb:latest
+    container_name: mariadb # Nombre de red interno para que otros contenedores lo encuentren
+    restart: unless-stopped # Reinicia automáticamente a menos que se detenga manualmente
+    
+    # --- OPTIMIZACIÓN INTERNA DE RAM (Desarrollo) ---
+    # innodb_buffer_pool_size: El consumidor #1 de RAM. Lo limitamos a 256M.
+    # max_connections: Limitado a 50 (ahorra RAM, suficiente para dev/colas).
+    command: --innodb_buffer_pool_size=256M --max_connections=50
+    
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    
+    volumes:
+      # Separa los datos del código (Persistencia en monorepo local)
+      - ../../data/mariadb:/var/lib/mysql:rw 
+      # Monta scripts SQL de inicialización en modo solo lectura para evitar alteraciones
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+    
+    ports:
+      # Expone el puerto solo al localhost, previniendo accesos externos
+      - "127.0.0.1:3306:3306"
+    
+    networks:
+      - app-network # Conecta a la red externa compartida
+    
+    healthcheck:
+      # Verifica internamente que el motor InnoDB esté listo para recibir consultas
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s # Tiempo entre cada intento de chequeo
+      timeout: 5s   # Tiempo máximo de espera por chequeo
+      retries: 5    # Número de fallos consecutivos antes de marcar el estado como 'unhealthy'
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"         # Rota el log cuando alcanza los 10 Megabytes
+        max-file: "3"           # Conserva un máximo de 3 archivos rotados (30MB en total)
+        mode: "non-blocking"    # Desacopla la escritura en disco (Evita bloqueos de I/O)
+        max-buffer-size: "4m"   # Usa 4MB de RAM como búfer circular antes de escribir a disco
+    
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'  # Límite de procesamiento: Máximo 1 núcleo del CPU
+          memory: 1G   # Límite RAM: Deja un margen seguro sobre los 256MB asignados a InnoDB
+
+networks:
+  app-network:
+    external: true # Indica que la red debe ser creada previamente (docker network create app-network)

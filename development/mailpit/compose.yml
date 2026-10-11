@@ -1,0 +1,50 @@
+name: mailpit-stack # Define el nombre del stack para aislamiento
+services:
+  mailpit:
+    image: axllent/mailpit:latest # Versión
+    container_name: mailpit # Nombre DNS para que Symfony/WP conecten internamente
+    restart: unless-stopped # Reinicia automáticamente a menos que se detenga manualmente
+    
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: 1 # Permite pruebas sin configurar credenciales SMTP reales
+      MP_SMTP_AUTH_ALLOW_INSECURE: 1 # Acepta conexiones SMTP no cifradas (ideal para red Docker local)
+      MP_MAX_MESSAGES: 500 # Auto-purga: Ajustado a 500 para soportar pruebas de ráfagas/colas
+      GOMEMLIMIT: "100MiB" # Ajuste de Go: Previene que el Garbage Collector exceda la RAM asignada
+      TZ: ${TZ:-America/El_Salvador} # Zona horaria inyectada por .env o por defecto
+            
+    volumes:
+      # Separación SRE (Monorepo): Persistencia de correos y base de datos local
+      - ../../data/mailpit/data:/data 
+      
+    ports:
+      # Interfaz web 8025 expuesta solo al localhost
+      - "127.0.0.1:8025:8025" 
+      # Nota: El puerto 1025 (SMTP) es interno y no requiere publicación al host
+
+    networks:
+      - app-network # Conecta a la red compartida de las aplicaciones
+    
+    healthcheck:
+      # Verifica internamente que el panel web y la API estén respondiendo
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:8025/api/v1/info || exit 1"]
+      interval: 15s # Tiempo entre cada intento de chequeo
+      timeout: 5s   # Tiempo máximo de espera por chequeo
+      retries: 3    # Número de fallos consecutivos antes de marcar el estado como 'unhealthy'
+      
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"         # Rota el log al alcanzar 10MB
+        max-file: "3"           # Conserva un máximo de 3 archivos rotados (30MB total)
+        mode: "non-blocking"    # Desacopla I/O de disco (Vital para ráfagas masivas de correo)
+        max-buffer-size: "4m"   # Usa 4MB en RAM como búfer circular temporal
+    
+    deploy:
+      resources:
+        limits:
+          cpus: '0.2'  # Límite de procesamiento: 20% de un núcleo (muy ligero)
+          memory: 256M # Límite RAM: Control estricto para evitar OOM Kills
+
+networks:
+  app-network:
+    external: true # La red debe existir previamente (docker network create app-network)

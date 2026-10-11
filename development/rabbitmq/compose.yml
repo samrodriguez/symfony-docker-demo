@@ -1,0 +1,51 @@
+name: rabbitmq-stack # Define el nombre del stack para aislar el entorno
+services:
+  rabbitmq:
+    image: rabbitmq:management-alpine
+    container_name: rabbitmq # Nombre de red interno para que otros contenedores lo encuentren
+    restart: unless-stopped # Reinicia automáticamente a menos que se detenga manualmente
+    environment: 
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+      
+      # --- OPTIMIZACIONES INTERNAS DE RAM Y DATOS ---
+      # Detiene la publicación de mensajes si Erlang consume más de 512MB
+      RABBITMQ_VM_MEMORY_HIGH_WATERMARK.absolute: "512MiB"
+      # Límite de alerta de disco libre para evitar corrupción de colas persistentes
+      RABBITMQ_DISK_FREE_LIMIT.absolute: "256MiB"
+
+    volumes:
+      # Separa los datos del código (Persistencia en monorepo local)
+      - ../../data/rabbitmq:/var/lib/rabbitmq:cached
+ 
+    ports:
+      # Expone el puerto solo al localhost, previniendo accesos externos al panel de administración
+      - "127.0.0.1:15672:15672"
+
+    networks:
+      - app-network # Conecta a la red externa compartida
+
+    healthcheck:
+      # Verifica internamente que el broker de mensajería esté respondiendo
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 15s # Tiempo entre cada intento de chequeo
+      timeout: 10s  # Tiempo máximo de espera por chequeo
+      retries: 5    # Número de fallos consecutivos antes de marcar el estado como 'unhealthy'
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"         # Rota el log cuando alcanza los 10 Megabytes
+        max-file: "3"           # Conserva un máximo de 3 archivos rotados (30MB en total)
+        mode: "non-blocking"    # Desacopla la escritura en disco (Evita bloqueos de I/O)
+        max-buffer-size: "4m"   # Usa 4MB de RAM como búfer circular antes de escribir a disco
+    
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'   # Límite de procesamiento: Máximo medio núcleo de CPU
+          memory: 768M  # Límite RAM: Deja un margen seguro sobre los 512MB asignados al WATERMARK
+
+networks:
+  app-network:
+    external: true # Indica que la red debe ser creada previamente (docker network create app-network)
