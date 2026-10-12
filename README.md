@@ -1,6 +1,6 @@
 # Symfony Docker Demo
 
-Entorno de desarrollo basado en Docker para construir aplicaciones con **Symfony 7.4, PHP 8.4 y Nginx**, acompañado de MariaDB, RabbitMQ y Mailpit.
+Entorno de desarrollo basado en Docker para construir aplicaciones con **Symfony 8.1, PHP 8.4 y Nginx**, acompañado de MariaDB, RabbitMQ y Mailpit.
 
 El objetivo de este repositorio es proporcionar una base reutilizable, organizada y fácil de mantener para desarrollar aplicaciones Symfony en un entorno aislado, sin necesidad de instalar PHP, Composer, Node.js o los servicios de infraestructura directamente en el sistema operativo.
 
